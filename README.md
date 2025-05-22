@@ -29,12 +29,12 @@ A simple, user-friendly Alarm Clock application built with Python using Object-O
 
 3. Use the interactive menu:
    Menu:
-  1. Add Alarm
-  2. Delete Alarm
-  3. Snooze Alarm
-  4. List Alarms
-  5. Show Current Time
-  6. Exit
+        1. Add Alarm
+        2. Delete Alarm
+        3. Snooze Alarm
+        4. List Alarms
+        5. Show Current Time
+        6. Exit
 
 
 ## 🧠 Engineering Notes
