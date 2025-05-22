@@ -28,7 +28,8 @@ A simple, user-friendly Alarm Clock application built with Python using Object-O
    python alarm_clock.py
 
 3. Use the interactive menu:
-   Menu:
+   
+   - Menu:
         1. Add Alarm
         2. Delete Alarm
         3. Snooze Alarm
