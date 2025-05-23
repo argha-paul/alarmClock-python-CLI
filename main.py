@@ -2,43 +2,88 @@ import time
 import datetime
 import threading
 import uuid
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Optional
 
 # Engineering Design Notes:
 # - The system is modular with Alarm and AlarmClock classes.
 # - Alarm encapsulates the state and logic for individual alarms.
 # - AlarmClock manages the collection of alarms and user interactions.
 # - All input/output interactions are handled via a command-line interface.
+# - Improved type safety by using a Time dataclass and DayOfWeek enum.
+
+@dataclass(frozen=True)
+class Time:
+    hour: int
+    minute: int
+
+    def to_str(self) -> str:
+        return f"{self.hour:02d}:{self.minute:02d}"
+
+    @staticmethod
+    def from_str(time_str: str) -> "Time":
+        time_parts = time_str.split(":")
+        hour = int(time_parts[0])
+        minute = int(time_parts[1])
+        return Time(hour, minute)
+
+class DayOfWeek(Enum):
+    MONDAY = "Monday"
+    TUESDAY = "Tuesday"
+    WEDNESDAY = "Wednesday"
+    THURSDAY = "Thursday"
+    FRIDAY = "Friday"
+    SATURDAY = "Saturday"
+    SUNDAY = "Sunday"
+
+    @staticmethod
+    def from_str(day_str: str) -> "DayOfWeek":
+        try:
+            return DayOfWeek[day_str.upper()]
+        except KeyError:
+            raise ValueError(f"Invalid day: {day_str}")
 
 class Alarm:
-    def __init__(self, alarm_id: str, time_str: str, day: str):
-        self.id: str = alarm_id                    
-        self.time: str = time_str                 
-        self.day: str = day                       
-        self.snooze_count: int = 0                 
-        self.active: bool = True                  
+    def __init__(self, original_time: Time, day: DayOfWeek):
+        self.id: str = str(uuid.uuid4())
+        self.original_time: Time = original_time
+        self.day: DayOfWeek = day
+        self.snooze_count: int = 0
+        self.active: bool = True
+        self.snoozed_time: Optional[Time] = None
+
+    def current_time(self) -> Time:
+        return self.snoozed_time if self.snoozed_time else self.original_time
 
     def snooze(self) -> None:
         if self.snooze_count < 3:
-            hour, minute = map(int, self.time.split(':'))
-            alarm_time = datetime.datetime.now().replace(hour=hour, minute=minute, second=0, microsecond=0)
-            snoozed_time = alarm_time + datetime.timedelta(minutes=5)
-            self.time = snoozed_time.strftime('%H:%M')
+            now = datetime.datetime.now().replace(second=0, microsecond=0)
+            alarm_time = now.replace(hour=self.current_time().hour, minute=self.current_time().minute)
+            snoozed_dt = alarm_time + datetime.timedelta(minutes=5)
+            snoozed_hour = snoozed_dt.hour
+            snoozed_minute = snoozed_dt.minute
+            self.snoozed_time = Time(snoozed_hour, snoozed_minute)
             self.snooze_count += 1
-            print(f"Alarm {self.id} snoozed to {self.time}")
+            print(f"Alarm {self.id} snoozed to {self.snoozed_time.to_str()}")
+        else:
+            print(f"Alarm {self.id} has already been snoozed 3 times.")
 
     def reset_snooze(self) -> None:
         self.snooze_count = 0
+        self.snoozed_time = None
 
 class AlarmClock:
     def __init__(self):
-        self.alarms: list[Alarm] = []              
-        self.running: bool = True                  
+        self.alarms: list[Alarm] = []
+        self.running: bool = True
 
-    def add_alarm(self, time_str: str, day: str) -> None:
-        alarm_id = str(uuid.uuid4())
-        alarm = Alarm(alarm_id, time_str, day)
+    def add_alarm(self, time_str: str, day_str: str) -> None:
+        time_obj = Time.from_str(time_str)
+        day_enum = DayOfWeek.from_str(day_str)
+        alarm = Alarm(time_obj, day_enum)
         self.alarms.append(alarm)
-        print(f"Alarm set for {time_str} on {day} (ID: {alarm.id})")
+        print(f"Alarm set for {time_obj.to_str()} on {day_enum.value} (ID: {alarm.id})")
 
     def delete_alarm(self, alarm_id: str) -> None:
         self.alarms = [alarm for alarm in self.alarms if alarm.id != alarm_id]
@@ -50,29 +95,36 @@ class AlarmClock:
                 alarm.snooze()
                 break
 
-    def snooze_alarm_by_time_day(self, time_str: str, day: str) -> None:
-        alarm = self.find_alarm_by_time_day(time_str, day)
+    def snooze_alarm_by_time_day(self, time_str: str, day_str: str) -> None:
+        alarm = self.find_alarm_by_time_day(time_str, day_str)
         if alarm:
             self.snooze_alarm(alarm.id)
         else:
-            print(f"No alarm found for {time_str} on {day}.")
+            print(f"No alarm found for {time_str} on {day_str}.")
 
-    def find_alarm_by_time_day(self, time_str: str, day: str) -> Alarm | None:
+    def find_alarm_by_time_day(self, time_str: str, day_str: str) -> Alarm | None:
+        try:
+            target_time = Time.from_str(time_str)
+            target_day = DayOfWeek.from_str(day_str)
+        except ValueError as e:
+            print(e)
+            return None
+
         for alarm in self.alarms:
-            if alarm.time == time_str and alarm.day.lower() == day.lower():
+            if alarm.original_time == target_time and alarm.day == target_day:
                 return alarm
         return None
 
     def check_alarms(self) -> None:
         while self.running:
             now = datetime.datetime.now()
-            current_time = now.strftime('%H:%M')
-            current_day = now.strftime('%A')
+            current_time = Time(now.hour, now.minute)
+            current_day = DayOfWeek[now.strftime('%A').upper()]
             for alarm in self.alarms:
-                if alarm.active and alarm.time == current_time and alarm.day == current_day:
-                    print(f"\n*** ALARM! It's {alarm.time} on {alarm.day} ***")
+                if alarm.active and alarm.current_time() == current_time and alarm.day == current_day:
+                    print(f"\n*** ALARM! It's {alarm.current_time().to_str()} on {alarm.day.value} ***")
                     alarm.active = False
-            time.sleep(60)  # Check every minute
+            time.sleep(60)
 
     def start(self) -> None:
         print("Alarm Clock started.")
@@ -81,7 +133,7 @@ class AlarmClock:
     def list_alarms(self) -> None:
         for alarm in self.alarms:
             status = "Active" if alarm.active else "Inactive"
-            print(f"ID: {alarm.id} | Time: {alarm.time} | Day: {alarm.day} | Snoozes: {alarm.snooze_count}/3 | {status}")
+            print(f"ID: {alarm.id} | Time: {alarm.current_time().to_str()} | Day: {alarm.day.value} | Snoozes: {alarm.snooze_count}/3 | {status}")
 
     def show_current_time(self) -> None:
         now = datetime.datetime.now()
@@ -90,6 +142,14 @@ class AlarmClock:
 if __name__ == '__main__':
     clock = AlarmClock()
     clock.start()
+
+    # Automatically create a 5 AM alarm on Monday with 3 snoozes (for demonstration)
+    base_time = "05:00"
+    day_of_week = "Monday"
+    clock.add_alarm(base_time, day_of_week)
+    clock.snooze_alarm_by_time_day(base_time, day_of_week)
+    clock.snooze_alarm_by_time_day(base_time, day_of_week)
+    clock.snooze_alarm_by_time_day(base_time, day_of_week)
 
     while True:
         print("\nMenu:")
